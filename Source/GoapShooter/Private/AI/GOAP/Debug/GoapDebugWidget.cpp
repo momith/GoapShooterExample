@@ -1,8 +1,6 @@
 #include "AI/GOAP/Debug/GoapDebugWidget.h"
 #include "AI/GOAP/Actions/GoapAction.h"
 #include "AI/GOAP/Goals/GoapGoal.h"
-#include "Components/VerticalBoxSlot.h"
-#include "Components/BorderSlot.h"
 #include "Blueprint/WidgetTree.h"
 
 void UGoapDebugWidget::NativeConstruct()

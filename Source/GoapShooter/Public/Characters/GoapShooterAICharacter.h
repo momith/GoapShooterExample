@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "Characters/GoapShooterCharacter.h"
-
 #include "GoapShooterAICharacter.generated.h"
 
 /**

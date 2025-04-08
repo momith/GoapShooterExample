@@ -15,13 +15,13 @@ class GOAPSHOOTER_API AGoapShooterPlayerCharacter : public AGoapShooterCharacter
 
 public:
     AGoapShooterPlayerCharacter();
-
-    virtual void Die() override;
-
-    /** Returns First Person Camera component */
-    UFUNCTION(BlueprintCallable, Category = Camera)
-    class UCameraComponent* GetFirstPersonCameraComponent() const { return FirstPersonCameraComponent; }
-
+    
+    virtual void Tick(float DeltaTime) override;
+    
+    void Shoot();
+    
+    virtual void Die(AActor* DamageCauser) override;
+    
     /** Called for movement input */
     void Move(const FInputActionValue& Value);
 
@@ -43,6 +43,10 @@ public:
     /** Look Input Action */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
     class UInputAction* LookAction;
+
+    /** Shoot Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    class UInputAction* ShootAction;
 
 protected:
     virtual void BeginPlay() override;

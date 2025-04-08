@@ -67,6 +67,12 @@ uint32 FGoapNode::GetStateHash() const
         case EGoapValueType::Object:
             Hash = CombineHashes(Hash, GetTypeHash(Value.ObjectValue));
             break;
+        case EGoapValueType::Vector:
+            // For vectors, we need to hash each component
+            Hash = CombineHashes(Hash, GetTypeHash(Value.VectorValue.X));
+            Hash = CombineHashes(Hash, GetTypeHash(Value.VectorValue.Y));
+            Hash = CombineHashes(Hash, GetTypeHash(Value.VectorValue.Z));
+            break;
         }
     }
     

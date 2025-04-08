@@ -27,10 +27,6 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GOAP")
 	float MinTimeSinceLastSighting = 0.5f;
 	
-	/** Base cost for this action */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GOAP")
-	float BaseCost = 2.0f;
-	
 	/** Cost multiplier that increases as time since last sighting increases */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "GOAP")
 	float TimeSinceSightingCostMultiplier = 0.5f;

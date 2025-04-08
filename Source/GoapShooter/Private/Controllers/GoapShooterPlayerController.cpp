@@ -1,20 +1,21 @@
 #include "Controllers/GoapShooterPlayerController.h"
-#include "Controllers/GoapShooterAIControllerBase.h"
+#include "Controllers/GoapShooterAIController.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Pawn.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "AI/GOAP/Interfaces/GoapShooterPlanningComponent.h"
+#include "AI/GOAP/Debug/PerceptionDebugWidget.h"
 
 AGoapShooterPlayerController::AGoapShooterPlayerController()
 {
-    GoapDebugWidget = nullptr;
+    //
 }
 
 void AGoapShooterPlayerController::BeginPlay()
 {
     Super::BeginPlay();
     
-    // Set up enhanced input
     if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
     {
         if (DefaultMappingContext)
@@ -23,10 +24,9 @@ void AGoapShooterPlayerController::BeginPlay()
         }
     }
     
-    // Create the debug widget if a class is specified
-    if (GoapDebugWidgetClass)
+    if (!GoapDebugWidgetClass)
     {
-        GoapDebugWidget = CreateWidget<UGoapDebugWidget>(this, GoapDebugWidgetClass);
+        UE_LOG(LogTemp, Error, TEXT("Failed to create GOAP debug widget. Please ensure the widget class is set up."));
     }
 }
 
@@ -34,87 +34,136 @@ void AGoapShooterPlayerController::SetupInputComponent()
 {
     Super::SetupInputComponent();
     
-    // Set up Enhanced Input component
     if (UEnhancedInputComponent* EnhancedInputComponent = CastChecked<UEnhancedInputComponent>(InputComponent))
     {
-        // Bind the O key action
-        if (OKeyAction)
+        if (MovementDebugKeyAction && CombatDebugKeyAction && PerceptionDebugKeyAction)
         {
-            EnhancedInputComponent->BindAction(OKeyAction, ETriggerEvent::Triggered, this, &AGoapShooterPlayerController::ToggleGoapDebugWidget);
-        }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to set up Enhanced Input component. Please ensure Enhanced Input is properly set up."));
-    }
-}
-
-void AGoapShooterPlayerController::OnOKeyPressed()
-{
-    UE_LOG(LogTemp, Warning, TEXT("O key was pressed!"));
-}
-
-void AGoapShooterPlayerController::ToggleGoapDebugWidget()
-{
-    UE_LOG(LogTemp, Warning, TEXT("Toggle GOAP debug widget!"));
-    if (GoapDebugWidget)
-    {
-        if (GoapDebugWidget->IsInViewport())
-        {
-            HideGoapDebugWidget();
+            EnhancedInputComponent->BindAction(MovementDebugKeyAction, ETriggerEvent::Triggered, this, &AGoapShooterPlayerController::ToggleMovementGoapDebugWidget);
+            EnhancedInputComponent->BindAction(CombatDebugKeyAction, ETriggerEvent::Triggered, this, &AGoapShooterPlayerController::ToggleCombatGoapDebugWidget);
+            EnhancedInputComponent->BindAction(PerceptionDebugKeyAction, ETriggerEvent::Triggered, this, &AGoapShooterPlayerController::TogglePerceptionDebugWidget);
         }
         else
         {
-            ShowGoapDebugWidget();
+            UE_LOG(LogTemp, Error, TEXT("Failed to bind GOAP debug actions. Please ensure the actions are properly set up."));
+        }
+    }
+}
+
+void AGoapShooterPlayerController::TogglePerceptionDebugWidget()
+{
+    AGoapShooterAIController* AIController = FindClosestAIController();
+    if (!AIController)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No AI controller found to debug"));
+        return;
+    }
+
+    if (!PerceptionDebugWidget) {
+        PerceptionDebugWidget = CreateWidget<UPerceptionDebugWidget>(this, PerceptionDebugWidgetClass);
+        PerceptionDebugWidget->SetAIController(AIController);
+    }
+    
+    if (PerceptionDebugWidget->IsInViewport())
+    {
+        HideWidget(PerceptionDebugWidget);
+    }
+    else
+    {
+        ShowWidget(PerceptionDebugWidget);
+    }
+}
+
+void AGoapShooterPlayerController::ToggleMovementGoapDebugWidget()
+{
+    ToggleGoapDebugWidget(true);
+}
+
+void AGoapShooterPlayerController::ToggleCombatGoapDebugWidget()
+{
+    ToggleGoapDebugWidget(false);
+}
+
+void AGoapShooterPlayerController::ToggleGoapDebugWidget(bool bDebugMovementGoap)
+{
+    UGoapDebugWidget* Widget = nullptr;
+    UGoapDebugWidget** WidgetPtr = nullptr;
+    
+    if (bDebugMovementGoap)
+    {
+        Widget = MovementGoapDebugWidget;
+        WidgetPtr = &MovementGoapDebugWidget;
+    }
+    else
+    {
+        Widget = CombatGoapDebugWidget;
+        WidgetPtr = &CombatGoapDebugWidget;
+    }
+    
+    if (Widget)
+    {
+        if (Widget->IsInViewport())
+        {
+            HideWidget(Widget);
+        }
+        else
+        {
+            ShowWidget(Widget);
         }
     }
     else if (GoapDebugWidgetClass)
     {
-        // Create the widget if it doesn't exist
-        GoapDebugWidget = CreateWidget<UGoapDebugWidget>(this, GoapDebugWidgetClass);
-        ShowGoapDebugWidget();
-        UE_LOG(LogTemp, Log, TEXT("Created GOAP debug widget"));
+        // Create the widget if it doesn't exist yet
+        *WidgetPtr = CreateWidget<UGoapDebugWidget>(this, GoapDebugWidgetClass);
+        Widget = *WidgetPtr;
+
+        AGoapShooterAIController* AIController = FindClosestAIController();
+        if (!AIController)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("No AI controller found to debug"));
+            return;
+        }
+
+        if (bDebugMovementGoap)
+        {
+            Widget->SetDebugHelper(AIController->GetMovementPlanningComponent()->GoapDebugHelper);
+        }
+        else
+        {
+            Widget->SetDebugHelper(AIController->GetCombatPlanningComponent()->GoapDebugHelper);
+        }
+
+        ShowWidget(Widget);
     }
 }
 
-void AGoapShooterPlayerController::ShowGoapDebugWidget()
+void AGoapShooterPlayerController::ShowWidget(UUserWidget* Widget)
 {
-    if (!GoapDebugWidget)
+    if (!Widget)
     {
         return;
     }
     
-    // Find the closest AI controller to debug
-    AGoapShooterAIControllerBase* AIController = FindClosestAIController();
-    if (AIController && AIController->DebugHelper)
-    {
-    // Set the debug helper and current action/goal
-    GoapDebugWidget->SetDebugHelper(AIController->DebugHelper);
+    Widget->AddToViewport();
+}
 
-    
-    // Add the widget to the viewport
-    GoapDebugWidget->AddToViewport();
-    UE_LOG(LogTemp, Log, TEXT("Showing GOAP debug widget"));
-    }
-    else
+void AGoapShooterPlayerController::HideWidget(UUserWidget* Widget)
+{
+    if (Widget && Widget->IsInViewport())
     {
-        UE_LOG(LogTemp, Warning, TEXT("No AI controller found to debug"));
+        Widget->RemoveFromParent();
     }
 }
 
-void AGoapShooterPlayerController::HideGoapDebugWidget()
+AGoapShooterAIController* AGoapShooterPlayerController::FindClosestAIController()
 {
-    if (GoapDebugWidget && GoapDebugWidget->IsInViewport())
+    if (ClosestAIController) 
     {
-        GoapDebugWidget->RemoveFromParent();
+        return ClosestAIController;
     }
-}
 
-AGoapShooterAIControllerBase* AGoapShooterPlayerController::FindClosestAIController()
-{
     // Get all AI controllers
     TArray<AActor*> AIControllers;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGoapShooterAIControllerBase::StaticClass(), AIControllers);
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGoapShooterAIController::StaticClass(), AIControllers);
     
     if (AIControllers.Num() == 0)
     {
@@ -124,7 +173,7 @@ AGoapShooterAIControllerBase* AGoapShooterPlayerController::FindClosestAIControl
     // If there's only one AI controller, return it
     if (AIControllers.Num() == 1)
     {
-        return Cast<AGoapShooterAIControllerBase>(AIControllers[0]);
+        return Cast<AGoapShooterAIController>(AIControllers[0]);
     }
     
     // Find the closest AI controller to the player
@@ -132,7 +181,7 @@ AGoapShooterAIControllerBase* AGoapShooterPlayerController::FindClosestAIControl
     if (!PlayerPawn)
     {
         // If no player pawn, return the first AI controller
-        return Cast<AGoapShooterAIControllerBase>(AIControllers[0]);
+        return Cast<AGoapShooterAIController>(AIControllers[0]);
     }
     
     // Get player location
@@ -140,11 +189,11 @@ AGoapShooterAIControllerBase* AGoapShooterPlayerController::FindClosestAIControl
     
     // Find the closest AI controller
     float ClosestDistanceSq = MAX_FLT;
-    AGoapShooterAIControllerBase* ClosestController = nullptr;
+    AGoapShooterAIController* ClosestController = nullptr;
     
     for (AActor* Actor : AIControllers)
     {
-        AGoapShooterAIControllerBase* AIController = Cast<AGoapShooterAIControllerBase>(Actor);
+        AGoapShooterAIController* AIController = Cast<AGoapShooterAIController>(Actor);
         if (!AIController)
         {
             continue;
@@ -166,5 +215,7 @@ AGoapShooterAIControllerBase* AGoapShooterPlayerController::FindClosestAIControl
         }
     }
     
-    return ClosestController;
+    ClosestAIController = ClosestController;
+
+    return ClosestAIController;
 }

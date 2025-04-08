@@ -3,11 +3,12 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "AI/GOAP/Debug/GoapDebugWidget.h"
-#include "InputActionValue.h"
 #include "GoapShooterPlayerController.generated.h"
 
 class UInputMappingContext;
 class UInputAction;
+class UPerceptionDebugWidget;
+class AGoapShooterAIController;
 
 /**
  * Player controller for the GoapShooter game
@@ -23,32 +24,40 @@ public:
     virtual void BeginPlay() override;
     virtual void SetupInputComponent() override;
     
-    void ToggleGoapDebugWidget();
-    
-    void ShowGoapDebugWidget();
-    
-    void HideGoapDebugWidget();
+    void TogglePerceptionDebugWidget();
+    void ToggleMovementGoapDebugWidget();
+    void ToggleCombatGoapDebugWidget();
+
+    void ToggleGoapDebugWidget(bool bDebugMovementGoap);
+    void ShowWidget(UUserWidget* Widget);
+    void HideWidget(UUserWidget* Widget);
     
 protected:
-    /** Class to use for the GOAP debug widget */
     UPROPERTY(EditDefaultsOnly, Category = "GOAP|Debug")
     TSubclassOf<UGoapDebugWidget> GoapDebugWidgetClass;
+    UPROPERTY(EditDefaultsOnly, Category = "GOAP|Debug")
+    TSubclassOf<UPerceptionDebugWidget> PerceptionDebugWidgetClass;
     
-    /** The GOAP debug widget instance */
-    UPROPERTY()
-    UGoapDebugWidget* GoapDebugWidget;
-    
-    /** Input Mapping Context */
     UPROPERTY(EditDefaultsOnly, Category = "Input")
     UInputMappingContext* DefaultMappingContext;
     
-    /** O Key Input Action */
     UPROPERTY(EditDefaultsOnly, Category = "Input")
-    UInputAction* OKeyAction;
-    
-    /** Handler for O key press */
-    void OnOKeyPressed();
-    
+    UInputAction* MovementDebugKeyAction;
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UInputAction* CombatDebugKeyAction;
+    UPROPERTY(EditDefaultsOnly, Category = "Input")
+    UInputAction* PerceptionDebugKeyAction;
+
+    UPROPERTY()
+    UGoapDebugWidget* MovementGoapDebugWidget;
+    UPROPERTY()
+    UGoapDebugWidget* CombatGoapDebugWidget;
+
+    UPROPERTY()
+    UPerceptionDebugWidget* PerceptionDebugWidget;
+
+    UPROPERTY()
+    AGoapShooterAIController* ClosestAIController;
     /** Find the closest AI controller to debug */
-    class AGoapShooterAIControllerBase* FindClosestAIController();
+    class AGoapShooterAIController* FindClosestAIController();
 };

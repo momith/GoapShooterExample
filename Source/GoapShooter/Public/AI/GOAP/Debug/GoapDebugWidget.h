@@ -3,9 +3,6 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "AI/GOAP/Debug/GoapDebugHelper.h"
-#include "Components/TextBlock.h"
-#include "Components/Border.h"
-#include "Components/VerticalBox.h"
 #include "GoapDebugWidget.generated.h"
 
 /**

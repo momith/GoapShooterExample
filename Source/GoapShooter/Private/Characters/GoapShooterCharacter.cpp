@@ -1,19 +1,18 @@
 #include "Characters/GoapShooterCharacter.h"
 #include "Animation/AnimInstance.h"
-#include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
-#include "InputActionValue.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
+#include "GoapShooterGameState.h"
 #include "Kismet/GameplayStatics.h"
-#include "Kismet/KismetMathLibrary.h"
 #include "Math/UnrealMathUtility.h"
 #include "GameFramework/DamageType.h"
-#include "Engine/DamageEvents.h"
 #include "Perception/AIPerceptionSystem.h"
+#include "Characters/SimpleFootStepsComponent.h"
+#include "Perception/AISenseConfig_Sight.h"
+#include "Perception/AISenseConfig_Hearing.h"
+#include "Perception/AISenseConfig_Damage.h"
 
 AGoapShooterCharacter::AGoapShooterCharacter(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
@@ -22,6 +21,8 @@ AGoapShooterCharacter::AGoapShooterCharacter(const FObjectInitializer& ObjectIni
     Tags.Add(FName("ToBePerceivedByAI"));
 	StimuliSourceComponent = CreateDefaultSubobject<UAIPerceptionStimuliSourceComponent>(TEXT("StimulusSourceComponent"));
 	StimuliSourceComponent->RegisterForSense(TSubclassOf<UAISense_Sight>());
+    StimuliSourceComponent->RegisterForSense(TSubclassOf<UAISense_Hearing>());
+    StimuliSourceComponent->RegisterForSense(TSubclassOf<UAISense_Damage>());
 	StimuliSourceComponent->RegisterWithPerceptionSystem();
 
     // Set size for collision capsule
@@ -36,13 +37,12 @@ AGoapShooterCharacter::AGoapShooterCharacter(const FObjectInitializer& ObjectIni
     Mesh1P->CastShadow = false;
 
     // Default character movement
-    GetCharacterMovement()->bOrientRotationToMovement = true;
-    GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
     GetCharacterMovement()->MaxWalkSpeed = 350.f;
     GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
     GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 
-
+    // Footsteps component
+    FootStepsComponent = CreateDefaultSubobject<USimpleFootStepsComponent>(TEXT("FootStepsComponent"));
 }
 
 void AGoapShooterCharacter::BeginPlay()
@@ -52,6 +52,47 @@ void AGoapShooterCharacter::BeginPlay()
     
     // Initialize health to max health at the start
     Health = MaxHealth;
+
+    // Initialize FootStepsComponent, for some reason not working in constructor
+    FootStepsComponent->DefaultFootstepSound = FootstepSound;
+}
+
+void AGoapShooterCharacter::PlayShootSound()
+{
+    if (ShootSound)
+    {
+        UGameplayStatics::SpawnSoundAtLocation(this, ShootSound, GetActorLocation());
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("ShootSound is null"));
+    }
+    ReportShootNoise(); 
+}
+
+void AGoapShooterCharacter::ReportDamage(AActor* DamageInstigator)
+{
+    UAISense_Damage::ReportDamageEvent(
+        GetWorld(),
+        this, // Damaged actor
+        DamageInstigator, // Damage Instigator
+        1.0f, // Damage amount
+        GetActorLocation(), // Damage location
+        GetActorLocation(), // Hit location
+        FName("Shot") // Tag for the damage
+    );
+}
+
+void AGoapShooterCharacter::ReportShootNoise()
+{
+    UAISense_Hearing::ReportNoiseEvent(
+        GetWorld(),
+        GetActorLocation(), // Noise location 
+        1.0f, // Loudness
+        this, // Noise Instigator (this character)
+        0.0f, // Max range (0 means default hearing range)
+        FName("Shot") // Tag for the noise
+    );
 }
 
 bool AGoapShooterCharacter::ShootAt(AGoapShooterCharacter* Target, float MaxSway)
@@ -80,9 +121,37 @@ bool AGoapShooterCharacter::ShootAt(AGoapShooterCharacter* Target, float MaxSway
     
     FVector DirectionToTarget = (TargetLocation - EyeLocation).GetSafeNormal();
     
-    // Apply reduced random sway to simulate imperfect aim
-    float HorizontalSway = FMath::RandRange(-MaxSway, MaxSway) * 0.5f; // Reduce horizontal sway
-    float VerticalSway = FMath::RandRange(-MaxSway, MaxSway) * 0.5f;   // Reduce vertical sway
+    // Check if target is moving and adjust sway accordingly
+    float MovementMultiplier = 1.0f;
+    FVector TargetVelocity = Target->GetVelocity();
+    if (!TargetVelocity.IsNearlyZero())
+    {
+        // Calculate target speed
+        float TargetSpeed = TargetVelocity.Size();
+        
+        // Get character movement component to determine max speed
+        UCharacterMovementComponent* MovementComp = Target->GetCharacterMovement();
+        float MaxSpeed = MovementComp ? MovementComp->MaxWalkSpeed : 600.0f;
+        
+        // Normalize speed (0.0 to 1.0 range)
+        float NormalizedSpeed = FMath::Clamp(TargetSpeed / MaxSpeed, 0.0f, 1.0f);
+        
+        // Increase sway based on movement speed (up to 2x for full speed)
+        MovementMultiplier = 1.0f + NormalizedSpeed;
+        
+        // Additional sway for lateral movement (strafing is harder to hit)
+        FVector LateralVelocity = TargetVelocity - (DirectionToTarget * FVector::DotProduct(TargetVelocity, DirectionToTarget));
+        float LateralSpeed = LateralVelocity.Size();
+        float NormalizedLateralSpeed = FMath::Clamp(LateralSpeed / MaxSpeed, 0.0f, 1.0f);
+        
+        // Add up to 0.5x more sway for full lateral movement
+        MovementMultiplier += NormalizedLateralSpeed * 0.5f;
+    }
+    
+    // Apply random sway to simulate imperfect aim, adjusted by movement
+    float AdjustedMaxSway = MaxSway * MovementMultiplier;
+    float HorizontalSway = FMath::RandRange(-AdjustedMaxSway, AdjustedMaxSway) * 0.5f;
+    float VerticalSway = FMath::RandRange(-AdjustedMaxSway, AdjustedMaxSway) * 0.5f;
     
     // Create rotation from direction and apply sway
     FRotator DirectionRotation = DirectionToTarget.Rotation();
@@ -131,7 +200,7 @@ bool AGoapShooterCharacter::ShootAt(AGoapShooterCharacter* Target, float MaxSway
                 this,                            // Damage causer
                 UDamageType::StaticClass()       // Damage type
             );
-            
+
             // Check if the target is dead
             bIsDeadlyShot = Target->IsDead();
         }
@@ -149,6 +218,8 @@ bool AGoapShooterCharacter::ShootAt(AGoapShooterCharacter* Target, float MaxSway
         TraceColor = FColor::Red;
     }
     
+    PlayShootSound();
+
     // Draw debug line for visualization - replaced with blinking shot effect
     const int32 NumBlinks = 3; // Number of blinks for the shot effect
     const float BlinkDuration = 0.05f; // Duration of each blink in seconds
@@ -216,24 +287,40 @@ float AGoapShooterCharacter::TakeDamage(float DamageAmount, FDamageEvent const& 
     // Apply damage to health
     Health = FMath::Max(Health - ActualDamage, 0.0f);
     
-    UE_LOG(LogTemp, Log, TEXT("%s took %.1f damage from %s. Health: %.1f"), 
-        *GetName(), 
-        ActualDamage, 
-        DamageCauser ? *DamageCauser->GetName() : TEXT("Unknown"),
-        Health);
-    
+    //UE_LOG(LogTemp, Log, TEXT("%s took %.1f damage from %s. Health: %.1f"), 
+    //    *GetName(), 
+    //    ActualDamage, 
+    //    DamageCauser ? *DamageCauser->GetName() : TEXT("Unknown"),
+    //    Health);
+
+    ReportDamage(DamageCauser);
+
     // Check if character is dead
     if (IsDead())
     {
-        Die();
+        Die(DamageCauser);
     }
     
     return ActualDamage;
 }
 
-void AGoapShooterCharacter::Die()
+void AGoapShooterCharacter::Die(AActor* DamageCauser)
 {
     UE_LOG(LogTemp, Log, TEXT("%s has died"), *GetName());
+
+    // Tell GameState about death/kill
+    AGoapShooterCharacter* KillerChar = Cast<AGoapShooterCharacter>(DamageCauser);
+    APlayerState* KillerPlayerState = nullptr;
+    if (KillerChar)
+    {
+        KillerPlayerState = KillerChar->GetPlayerState();
+    }
+    APlayerState* VictimPlayerState = GetPlayerState();
+    if (VictimPlayerState)
+    {
+        GetWorld()->GetGameState<AGoapShooterGameState>()->
+            OnPlayerKillDelegate.Broadcast(KillerPlayerState, VictimPlayerState);
+    }
     
     // Disable collision to prevent further interaction
     GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);

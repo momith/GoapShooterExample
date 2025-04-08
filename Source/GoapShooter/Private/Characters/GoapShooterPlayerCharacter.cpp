@@ -7,6 +7,8 @@
 #include "InputActionValue.h"
 #include "GoapShooterGameMode.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
+
 
 AGoapShooterPlayerCharacter::AGoapShooterPlayerCharacter()
 {  
@@ -16,15 +18,86 @@ AGoapShooterPlayerCharacter::AGoapShooterPlayerCharacter()
     FirstPersonCameraComponent->bUsePawnControlRotation = true;
 
     GetCharacterMovement()->MaxWalkSpeed = 500.f;
+    GetCharacterMovement()->bOrientRotationToMovement = true;
+    GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
 }
 
-void AGoapShooterPlayerCharacter::Die()
+void AGoapShooterPlayerCharacter::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+}
+
+void AGoapShooterPlayerCharacter::Shoot()
+{
+    float DamageAmount = 20.0f;
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC) return;
+
+	int32 ViewportX, ViewportY;
+	PC->GetViewportSize(ViewportX, ViewportY);
+
+	const FVector2D ScreenCenter(ViewportX * 0.5f, ViewportY * 0.5f);
+
+	FVector WorldLocation;
+	FVector WorldDirection;
+
+	if (PC->DeprojectScreenPositionToWorld(ScreenCenter.X, ScreenCenter.Y, WorldLocation, WorldDirection))
+	{
+		FVector TraceStart = WorldLocation;
+		FVector TraceEnd = TraceStart + WorldDirection * 10000.0f; // 10,000 units ahead
+
+		FHitResult Hit;
+		FCollisionQueryParams Params;
+		Params.AddIgnoredActor(this);
+
+		if (GetWorld()->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Pawn, Params))
+		{
+			// Apply damage
+			AActor* HitActor = Hit.GetActor();
+			if (HitActor && HitActor->ActorHasTag(FName("ToBePerceivedByAI")))
+			{
+				//UGameplayStatics::ApplyDamage(HitActor, DamageAmount, PC, this, UDamageType::StaticClass());
+
+                UGameplayStatics::ApplyPointDamage(
+                    HitActor,                          // Target actor
+                    DamageAmount,                     // Damage amount
+                    WorldDirection,                  // Hit direction
+                    Hit,                       // Hit info
+                    GetController(),                 // Instigator controller
+                    this,                            // Damage causer
+                    UDamageType::StaticClass()       // Damage type
+                );
+
+                // Draw debug line and impact point
+                DrawDebugLine(GetWorld(), TraceStart, Hit.ImpactPoint, FColor::Green, false, 2.0f, 0, 1.0f);
+                DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 8.0f, 12, FColor::Yellow, false, 2.0f);
+			}
+            else
+            {
+                UE_LOG(LogTemp, Error, TEXT("Nothing hit!"));
+
+                // If nothing hit, draw full line
+                DrawDebugLine(GetWorld(), TraceStart, TraceEnd, FColor::Red, false, 1.0f, 0, 1.0f);
+            }
+		}
+		else
+		{
+			// If nothing hit, draw full line
+			DrawDebugLine(GetWorld(), TraceStart, TraceEnd, FColor::Red, false, 1.0f, 0, 1.0f);
+		}
+	}
+
+    PlayShootSound();
+}
+
+void AGoapShooterPlayerCharacter::Die(AActor* DamageCauser)
 {
     AGoapShooterGameMode* GameMode = Cast<AGoapShooterGameMode>(GetWorld()->GetAuthGameMode());
     if (GameMode && GameMode->bActivateGodModeForPlayer) {
         return;
     }
-    Super::Die();
+    Super::Die(DamageCauser);
 }
 
 void AGoapShooterPlayerCharacter::BeginPlay()
@@ -55,6 +128,9 @@ void AGoapShooterPlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pla
 
         // Looking
         EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AGoapShooterPlayerCharacter::Look);
+
+        // Shooting
+        EnhancedInputComponent->BindAction(ShootAction, ETriggerEvent::Completed, this, &AGoapShooterPlayerCharacter::Shoot);
     }
 }
 

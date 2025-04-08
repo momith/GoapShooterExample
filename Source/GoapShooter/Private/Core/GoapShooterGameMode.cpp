@@ -1,43 +1,16 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
-
 #include "Core/GoapShooterGameMode.h"
-#include "Characters/GoapShooterPlayerCharacter.h"
 #include "Characters/GoapShooterAICharacter.h"
-#include "Controllers/GoapShooterAIControllerBase.h"
+#include "Controllers/GoapShooterAIController.h"
 #include "GameFramework/PlayerStart.h"
-#include "EngineUtils.h"
+#include "GoapShooterGameState.h"
 #include "Kismet/GameplayStatics.h"
-#include "Controllers/GoapShooterPlayerController.h"
+#include "Characters/CrosshairHUD.h"
 
 AGoapShooterGameMode::AGoapShooterGameMode()
 {
-    // Set default classes
-    static ConstructorHelpers::FClassFinder<APawn> PlayerPawnClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter"));
-    DefaultPawnClass = PlayerPawnClassFinder.Class;
-
-    // Set the player controller class to our custom player controller
-    PlayerControllerClass = AGoapShooterPlayerController::StaticClass();
-
-    // Set default AI classes
-    static ConstructorHelpers::FClassFinder<AGoapShooterAICharacter> AICharacterClassFinder(TEXT("/Game/AI/BP_GoapShooterAICharacter"));
-    if (AICharacterClassFinder.Succeeded())
-    {
-        AICharacterClass = AICharacterClassFinder.Class;
-    }
-    else
-    {
-        AICharacterClass = AGoapShooterAICharacter::StaticClass();
-    }
-
-    static ConstructorHelpers::FClassFinder<AGoapShooterAIControllerBase> AIControllerClassFinder(TEXT("/Game/AI/BP_GoapShooterAIController"));
-    if (AIControllerClassFinder.Succeeded())
-    {
-        AIControllerClass = AIControllerClassFinder.Class;
-    }
-    else
-    {
-        AIControllerClass = AGoapShooterAIControllerBase::StaticClass();
-    }
+    AIControllerClass = AGoapShooterAIController::StaticClass();
+    HUDClass = ACrosshairHUD::StaticClass();
+    GameStateClass = AGoapShooterGameState::StaticClass();
 }
 
 void AGoapShooterGameMode::BeginPlay()
@@ -91,7 +64,7 @@ AGoapShooterAICharacter* AGoapShooterGameMode::SpawnAIBot()
     if (AICharacter)
     {
         // Spawn and set the AI controller
-        AGoapShooterAIControllerBase* AIController = GetWorld()->SpawnActor<AGoapShooterAIControllerBase>(
+        AGoapShooterAIController* AIController = GetWorld()->SpawnActor<AGoapShooterAIController>(
             AIControllerClass,
             FVector::ZeroVector,
             FRotator::ZeroRotator,

@@ -3,6 +3,7 @@
 #include "GameFramework/Pawn.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "AIController.h"
+#include "Components/PerceptionMemoryComponent.h"
 
 UGoToStimulusExecutable::UGoToStimulusExecutable()
 {
@@ -21,7 +22,7 @@ bool UGoToStimulusExecutable::StartExecution()
     AGoapShooterAIController* AIController = Cast<AGoapShooterAIController>(OwnerController);
     if (AIController)
     {
-        MostInterestingPerception = AIController->GetMostInterestingPerception();
+        MostInterestingPerception = AIController->GetPerceptionMemoryComponent()->GetMostInterestingPerception();
         TargetLocation = MostInterestingPerception.LastPerceivedLocation;
     }
     
@@ -43,9 +44,7 @@ bool UGoToStimulusExecutable::StartExecution()
 }
 
 void UGoToStimulusExecutable::TickAction(float DeltaTime)
-{
-    Super::TickAction(DeltaTime);
-    
+{   
     // TODO: this is wrong implemented by LLM ... needs to be fully reworked by me
 
     if (!OwnerController || !OwnerController->GetPawn())
@@ -67,7 +66,7 @@ void UGoToStimulusExecutable::TickAction(float DeltaTime)
             AGoapShooterAIController* AIController = Cast<AGoapShooterAIController>(OwnerController);
             if (AIController)
             {
-                AIController->OnStimulusInvestigated(MostInterestingPerception);
+                AIController->GetPerceptionMemoryComponent()->OnStimulusInvestigated(MostInterestingPerception);
             }
         }
     }

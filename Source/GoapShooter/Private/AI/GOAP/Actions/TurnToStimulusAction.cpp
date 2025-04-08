@@ -2,7 +2,6 @@
 #include "AI/GOAP/WorldStates/GoapWorldStateKeys.h"
 #include "AI/Utils/PerceptionTypes.h"
 #include "Controllers/GoapShooterAIController.h"
-#include "Kismet/GameplayStatics.h"
 
 UTurnToStimulusAction::UTurnToStimulusAction()
 {
@@ -12,9 +11,11 @@ UTurnToStimulusAction::UTurnToStimulusAction()
     Name = "TurnToStimulus";
     
     // Set preconditions - we need a stimulus that hasn't been investigated yet
+    AddPrecondition(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsMinThresholdFulfilledForEnemyPerception), FGoapValue(true));
     AddPrecondition(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasPerceivedStimulus), FGoapValue(true));
     AddPrecondition(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasInvestigatedStimulus), FGoapValue(false));
-    
+    AddPrecondition(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsLookingAtStimulus), FGoapValue(false));
+
     // Set effects - after this action, the stimulus will be partially investigated
     // Note: We don't set HasInvestigatedStimulus to true since we're only turning, not fully investigating
     // This allows for a potential follow-up action like GoToStimulusAction

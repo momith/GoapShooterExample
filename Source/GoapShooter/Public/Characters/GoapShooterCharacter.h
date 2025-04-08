@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "Perception/AISightTargetInterface.h"
 #include "Perception/AIPerceptionStimuliSourceComponent.h"
 #include "GoapShooterCharacter.generated.h"
 
+/**
+ * The base Character class, for both AI/bot and actual player.
+ */
 UCLASS()
 class GOAPSHOOTER_API AGoapShooterCharacter : public ACharacter
 {
@@ -21,7 +23,16 @@ public:
 
     UPROPERTY()
     UAIPerceptionStimuliSourceComponent* StimuliSourceComponent;
-    
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	USoundBase* FootstepSound;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	USoundBase* ShootSound;
+
+    UPROPERTY()
+    class USimpleFootStepsComponent* FootStepsComponent;
+
     /** Attempts to shoot at a target actor with random accuracy , result returns if enemy is dead */
     UFUNCTION(BlueprintCallable, Category = "Combat")
     bool ShootAt(AGoapShooterCharacter* Target, float MaxSway = 5.0f);
@@ -32,12 +43,16 @@ public:
     
     /** Apply damage to the character */
     virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+    void ReportDamage(AActor* DamageInstigator);
+
+    void PlayShootSound();
+    void ReportShootNoise();
 
 protected:
     virtual void BeginPlay() override;
     
     /** Handle death effects and cleanup */
-    virtual void Die();
+    virtual void Die(AActor* DamageCauser);
 
     /** First person mesh (arms), visible only to the owning player */
     UPROPERTY(VisibleDefaultsOnly, Category = Mesh)
@@ -53,7 +68,7 @@ protected:
     
     /** Base damage inflicted by this character's rifle */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-    float RifleDamage = 20.0f;
+    float RifleDamage = 2.0f;
     
     /** Maximum distance for rifle shots */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")

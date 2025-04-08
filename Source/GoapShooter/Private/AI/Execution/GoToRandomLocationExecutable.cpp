@@ -1,65 +1,29 @@
 #include "AI/Execution/GoToRandomLocationExecutable.h"
-#include "Controllers/GoapShooterAIControllerBase.h"
-#include "AI/GOAP/Actions/GoapAction.h"
 #include "NavigationSystem.h"
-#include "AIController.h"
+#include "GoapShooterAIController.h"
 
 UGoToRandomLocationExecutable::UGoToRandomLocationExecutable()
 {
-    // Set default values
     MaxSearchRadius = 2000.0f;
     MinSearchRadius = 500.0f;
     MaxLocationFindingAttempts = 5;
-    AcceptanceRadius = 50.0f;
-    bHasStarted = false;
+
+    bIsRelatedToMostInterestingActor = false;
 }
 
-bool UGoToRandomLocationExecutable::StartExecution()
+FVector UGoToRandomLocationExecutable::CalculateTargetLocation()
 {
-    Super::StartExecution();
-
-    if (!FindRandomLocation(TargetLocation))
+    FVector CalculatedTargetLocation;
+    if (FindRandomLocation(CalculatedTargetLocation))
     {
-        UE_LOG(LogTemp, Warning, TEXT("%s: Failed to find a random location"), *GetActionName());
-        FailAction();
-        return false;
+        return CalculatedTargetLocation;
     }
-    
-    MoveToLocation(TargetLocation);
-    
-    bHasStarted = true;
-    
-    return true;
-}
-
-void UGoToRandomLocationExecutable::TickAction(float DeltaTime)
-{
-    if (!bHasStarted && !Super::bIsComplete)
-    {
-        StartExecution();
-    }
-}
-
-bool UGoToRandomLocationExecutable::IsActionComplete() const
-{
-    return Super::bIsComplete;
-}
-
-void UGoToRandomLocationExecutable::AbortAction()
-{
-    AGoapShooterAIControllerBase* AIController = Cast<AGoapShooterAIControllerBase>(OwnerController);
-    if (AIController)
-    {
-        AIController->StopMovement();
-    }
-    
-    Super::AbortAction();
+    return FVector::ZeroVector;
 }
 
 bool UGoToRandomLocationExecutable::FindRandomLocation(FVector& OutLocation)
 {
-    AGoapShooterAIControllerBase* AIController = Cast<AGoapShooterAIControllerBase>(OwnerController);
-    APawn* ControlledPawn = AIController->GetPawn();
+    APawn* ControlledPawn = OwnerController->GetPawn();
     
     UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(ControlledPawn->GetWorld());
     if (!NavSystem)
@@ -96,72 +60,4 @@ bool UGoToRandomLocationExecutable::FindRandomLocation(FVector& OutLocation)
     UE_LOG(LogTemp, Warning, TEXT("%s: Failed to find a random location after %d attempts"), 
         *GetActionName(), MaxLocationFindingAttempts);
     return false;
-}
-
-void UGoToRandomLocationExecutable::MoveToLocation(const FVector& Location)
-{
-    // Get the AI controller
-    AGoapShooterAIControllerBase* AIController = Cast<AGoapShooterAIControllerBase>(OwnerController);
-    if (!AIController)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("%s: Invalid AI controller"), *GetActionName());
-        FailAction();
-        return;
-    }
-    
-    // Set up the move request
-    FAIMoveRequest MoveRequest;
-    MoveRequest.SetGoalLocation(Location);
-    MoveRequest.SetAcceptanceRadius(AcceptanceRadius);
-    MoveRequest.SetReachTestIncludesAgentRadius(true);
-    
-    // Start the move
-    FPathFollowingRequestResult Result = AIController->MoveTo(MoveRequest);
-    
-    if (Result.Code == EPathFollowingRequestResult::RequestSuccessful)
-    {
-        // Store the request ID for later reference
-        CurrentMoveRequestID = Result.MoveId;
-        
-        // Register for move completion notification
-        AIController->ReceiveMoveCompleted.AddDynamic(this, &UGoToRandomLocationExecutable::OnMoveCompleted);
-    }
-    else
-    {
-        // Failed to start movement
-        UE_LOG(LogTemp, Warning, TEXT("%s: Failed to start movement to location %s"), 
-            *GetActionName(), *Location.ToString());
-        FailAction();
-    }
-}
-
-void UGoToRandomLocationExecutable::OnMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result)
-{
-    // Check if this is the completion of our current request
-    if (RequestID != CurrentMoveRequestID)
-    {
-        return;
-    }
-    
-    // Get the AI controller
-    AGoapShooterAIControllerBase* AIController = Cast<AGoapShooterAIControllerBase>(OwnerController);
-    if (AIController)
-    {
-        // Unregister from move completion notification
-        AIController->ReceiveMoveCompleted.RemoveDynamic(this, &UGoToRandomLocationExecutable::OnMoveCompleted);
-    }
-    
-    // Check the result
-    if (Result == EPathFollowingResult::Success)
-    {
-        // Successfully reached the target location
-        CompleteAction();
-    }
-    else
-    {
-        // Failed to reach the target location
-        UE_LOG(LogTemp, Warning, TEXT("%s: Failed to reach target location, result: %d"), 
-            *GetActionName(), static_cast<int32>(Result));
-        FailAction();
-    }
 }

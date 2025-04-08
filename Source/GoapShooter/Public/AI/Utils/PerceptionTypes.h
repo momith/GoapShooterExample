@@ -98,13 +98,37 @@ struct GOAPSHOOTER_API FPerceptionData
     UPROPERTY(BlueprintReadWrite, Category = "GOAP|Perception")
     EPerceptionType PerceptionType = EPerceptionType::None;
     
-    /** Strength of the stimulus (0.0 to 1.0) */
+    /** Strength of the stimulus (0.0 to 1.0, or 1.5 for damage) */
     UPROPERTY(BlueprintReadWrite, Category = "GOAP|Perception")
-    float Strength = 0.0f;
+    float Strength = 0.0f; // to be refactored: maybe rename to InitialStrength? or make it private? should be differentiated from GetStrength()
     
     /** Whether this perception has been investigated */
     UPROPERTY(BlueprintReadWrite, Category = "GOAP|Perception")
     bool bHasBeenInvestigated = false;
-    
+
+    UPROPERTY()
+    float SecondsUntilRemovalOfPerceptionData = 20.0f;
+
     FPerceptionData() {}
+
+    float GetStrength() const
+    {
+        if (!PerceivedActor) // invalid actor => no strength
+        {
+            return 0.0f;
+        }
+        if (LastPerceivedTime == FLT_MAX) // actively perceived => stimuli strength
+        {
+            return Strength;
+        }
+        if (PerceptionType == EPerceptionType::Audio)
+        {
+            // audio expired -> strength decreases linear over time relatively fast
+            float WorldTime = PerceivedActor->GetWorld()->GetTimeSeconds();
+            return Strength * (1.0f - (WorldTime - LastPerceivedTime) / (SecondsUntilRemovalOfPerceptionData * 0.33f));
+        }
+        // expired => strength decreases linear over time
+        float WorldTime = PerceivedActor->GetWorld()->GetTimeSeconds();
+        return Strength * (1.0f - (WorldTime - LastPerceivedTime) / SecondsUntilRemovalOfPerceptionData);
+    }
 };

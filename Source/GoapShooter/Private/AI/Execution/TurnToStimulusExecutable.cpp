@@ -1,7 +1,7 @@
 #include "AI/Execution/TurnToStimulusExecutable.h"
+#include "Components/PerceptionMemoryComponent.h"
 #include "Controllers/GoapShooterAIController.h"
 #include "GameFramework/Pawn.h"
-#include "Kismet/KismetMathLibrary.h"
 
 UTurnToStimulusExecutable::UTurnToStimulusExecutable()
 {
@@ -21,7 +21,7 @@ bool UTurnToStimulusExecutable::StartExecution()
     AGoapShooterAIController* AIController = Cast<AGoapShooterAIController>(OwnerController);
     if (AIController)
     {
-        FPerceptionData MostInterestingPerception = AIController->GetMostInterestingPerception();
+        FPerceptionData MostInterestingPerception = AIController->GetPerceptionMemoryComponent()->GetMostInterestingPerception();
         TargetLocation = MostInterestingPerception.LastPerceivedLocation;
 
         UE_LOG(LogTemp, Log, TEXT("TurnToStimulusExecutable: TargetLocation=%s"), *TargetLocation.ToString());
@@ -41,7 +41,7 @@ bool UTurnToStimulusExecutable::StartExecution()
 
 void UTurnToStimulusExecutable::TickAction(float DeltaTime)
 {
-    Super::TickAction(DeltaTime);
+    //Super::TickAction(DeltaTime);
     
     if (!bHasStarted && !Super::bIsComplete)
     {

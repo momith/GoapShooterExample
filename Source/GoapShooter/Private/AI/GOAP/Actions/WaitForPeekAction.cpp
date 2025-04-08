@@ -1,16 +1,19 @@
 #include "AI/GOAP/Actions/WaitForPeekAction.h"
 #include "AI/GOAP/WorldStates/GoapWorldStateKeys.h"
-#include "Kismet/GameplayStatics.h"
 
 UWaitForPeekAction::UWaitForPeekAction()
 {
     Name = TEXT("WaitForPeekAction");
-    Cost = BaseCost;
+    Cost = 2.0f;
     
     AddPrecondition(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::CanSeeEnemy), FGoapValue(false));
+    AddPrecondition(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsFocusedOnStrongPerceivedStimulus), FGoapValue(true));
     
     AddEffect(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::CanSeeEnemy), FGoapValue(true));
     
+    // TODO: just to make sure it also gets activated for survive goal...
+    //AddEffect(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsInDanger), FGoapValue(false));
+
     // Initialize threshold values
     bThresholdInitialized = false;
     ThresholdTime = 0.0f;
@@ -19,7 +22,7 @@ UWaitForPeekAction::UWaitForPeekAction()
 float UWaitForPeekAction::GetCost(const TMap<FString, FGoapValue>& WorldState)
 {
     // Base cost for waiting
-    float ActionCost = BaseCost;
+    float ActionCost = Cost;
     
     // Get the world time when enemy was last seen
     float WorldTimeLastEnemySeen = -FLT_MAX;

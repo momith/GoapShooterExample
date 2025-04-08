@@ -1,175 +1,181 @@
 #include "Controllers/GoapShooterAIController.h"
 #include "AI/GOAP/WorldStates/GoapWorldStateKeys.h"
 #include "Perception/AIPerceptionComponent.h"
-#include "Perception/AISenseConfig_Sight.h"
-#include "Perception/AIPerceptionSystem.h"
-#include "Perception/AISense_Sight.h"
-#include "Perception/AISense_Hearing.h"
-#include "Perception/AISense_Damage.h"
-#include "Kismet/GameplayStatics.h"
 #include "Characters/GoapShooterCharacter.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "AI/GOAP/Interfaces/GoapShooterPlanningComponent.h"
+#include "AI/Execution/FlankExecutableAction.h"
+#include "Components/FlankingComponent.h"
+#include "Components/CoverComponent.h"
+#include "Components/PerceptionMemoryComponent.h"
+#include "Navigation/CrowdFollowingComponent.h"
+#include "Controllers/GoapMovementPlannerConfiguration.h"
+#include "Controllers/GoapCombatPlannerConfiguration.h"
+#include "Perception/AISenseConfig_Sight.h"
+#include "Perception/AISenseConfig_Hearing.h"
+#include "Perception/AISenseConfig_Damage.h"
 
 AGoapShooterAIController::AGoapShooterAIController(const FObjectInitializer& ObjectInitializer)
-    : Super(ObjectInitializer)
-{   
-    // configure perception component
-    PerceptionComponent = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("AIPerceptionComponent"));
+    : Super(ObjectInitializer.SetDefaultSubobjectClass<UCrowdFollowingComponent>(TEXT("PathFollowingComponent")))
+{
+    bWantsPlayerState = true; // bots should have a PlayerState too
 
+    // create GOAP planning components
+    MovementPlanningComponent = CreateDefaultSubobject<UGoapShooterPlanningComponent>(TEXT("MovementPlanningComponent"));
+    MovementPlanningComponent->Controller = this;
+    MovementPlanningComponent->ConfigClassToUse = UGoapMovementPlannerConfiguration::StaticClass();
+    MovementPlanningComponent->bActivated = true; // can be changed for testing
+
+    CombatPlanningComponent = CreateDefaultSubobject<UGoapShooterPlanningComponent>(TEXT("CombatPlanningComponent"));
+    CombatPlanningComponent->Controller = this;
+    CombatPlanningComponent->ConfigClassToUse = UGoapCombatPlannerConfiguration::StaticClass();
+    CombatPlanningComponent->bActivated = true; // can be changed for testing
+    
+    // create perception component
+    PerceptionComponent = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("PerceptionComponent"));
+    SetPerceptionComponent(*PerceptionComponent);
+
+    // configure sight sense
     SightConfig = CreateDefaultSubobject<UAISenseConfig_Sight>(TEXT("SightConfig"));
-    SightConfig->SightRadius = 1000.0f;
+    SightConfig->SightRadius = 1000.0f; 
+    //SightConfig->SightRadius = 5.0f; // to be reverted, just for testing
     SightConfig->LoseSightRadius = 1200.0f;
     SightConfig->PeripheralVisionAngleDegrees = FieldOfViewAngle;
-    SightConfig->SetMaxAge(0.0f); // 0.0f means never expires
-
-    SightConfig->AutoSuccessRangeFromLastSeenLocation = -1.0f;
-    
+    SightConfig->SetMaxAge(0.1f); // keep it low to avoid memory leak
+    SightConfig->AutoSuccessRangeFromLastSeenLocation = -1.0f;   
     SightConfig->DetectionByAffiliation.bDetectEnemies = true;
     SightConfig->DetectionByAffiliation.bDetectFriendlies = true;
     SightConfig->DetectionByAffiliation.bDetectNeutrals = true;
-  
-    PerceptionComponent->ConfigureSense(*SightConfig);
-    
-    SetPerceptionComponent(*PerceptionComponent);
+   
+    // configure hearing sense
+    HearingConfig = CreateDefaultSubobject<UAISenseConfig_Hearing>(TEXT("HearingConfig"));
+    HearingConfig->HearingRange = 10000.0f;
+    HearingConfig->DetectionByAffiliation.bDetectEnemies = true;
+    HearingConfig->DetectionByAffiliation.bDetectFriendlies = true;
+    HearingConfig->DetectionByAffiliation.bDetectNeutrals = true;
+    HearingConfig->SetMaxAge(0.1f); // keep it low to avoid memory leak
 
-    GetPerceptionComponent()->OnTargetPerceptionUpdated.AddDynamic(this, &AGoapShooterAIController::TargetActorsPerceptionUpdated);
+    // configure damage sense
+    DamageConfig = CreateDefaultSubobject<UAISenseConfig_Damage>(TEXT("DamageConfig"));
+    DamageConfig->SetMaxAge(0.1f); // keep it low to avoid memory leak
+
+    GetPerceptionComponent()->ConfigureSense(*SightConfig);
+    GetPerceptionComponent()->ConfigureSense(*HearingConfig);
+    GetPerceptionComponent()->ConfigureSense(*DamageConfig);
+    
+    GetPerceptionComponent()->SetDominantSense(*SightConfig->GetSenseImplementation());
+
+    // create flanking component
+    FlankingComponent = CreateDefaultSubobject<UFlankingComponent>(TEXT("FlankingComponent"));
+
+    // create cover component
+    CoverComponent = CreateDefaultSubobject<UCoverComponent>(TEXT("CoverComponent"));
+
+    // create perception memory component
+    PerceptionMemoryComponent = CreateDefaultSubobject<UPerceptionMemoryComponent>(TEXT("PerceptionMemoryComponent"));
 }
 
 TMap<FString, FGoapValue> AGoapShooterAIController::CalculateWorldState_Implementation()
 {
+    if (!FlankingComponent->IsInitialized() || !CoverComponent->IsInitialized() || !PerceptionMemoryComponent->IsInitialized())
+    {
+        return TMap<FString, FGoapValue>();
+    }
+    
     TMap<FString, FGoapValue> WorldState;
-
+    
     // Add AI position
     WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::AIPosition), 
         FGoapValue(GetPawn() ? GetPawn()->GetActorLocation() : FVector::ZeroVector));
 
+    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::BestCoverLocation), 
+        FGoapValue(CoverComponent->GetBestCoverLocation()));
+    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsCoverNearby), 
+        FGoapValue(CoverComponent->IsCoverNearby()));
+    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsInCover), 
+        FGoapValue(CoverComponent->IsInCover()));
+    
     // Add enemy visibility state
     WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::CanSeeEnemy), 
-        FGoapValue(CanSeeEnemy()));
+        FGoapValue(PerceptionMemoryComponent->CanSeeEnemy()));
     WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::WorldTimeLastEnemySeen), 
-        FGoapValue(LastSeenEnemyWorldTime));
+        FGoapValue(PerceptionMemoryComponent->GetLastSeenEnemyWorldTime()));
     WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasLastSeenEnemyLocation), 
-        FGoapValue(LastSeenEnemyLocation != FVector::ZeroVector));
+        FGoapValue(!PerceptionMemoryComponent->GetLastSeenEnemyLocation().IsZero()));
     WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::AllEnemiesInSightAreKilled), 
-        FGoapValue(bLastEnemyInSightKilled && PerceptionMemory.Num() == 0));
+        FGoapValue(PerceptionMemoryComponent->AreAllEnemiesInSightKilled()));
     
-    // Add the most interesting perceptions from perception memory
-    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasPerceivedStimulus), 
-        FGoapValue(MostInterestingPerception.PerceptionType != EPerceptionType::None));
-    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasInvestigatedStimulus), 
-        FGoapValue(MostInterestingPerception.bHasBeenInvestigated));
-    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::PerceivedStimulusType), 
-        FGoapValue(FPerceptionTypeUtils::ToString(MostInterestingPerception.PerceptionType)));
-    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::PerceivedStimulusLocation), 
-        FGoapValue(MostInterestingPerception.LastPerceivedLocation));
+    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsInDanger), 
+        FGoapValue(PerceptionMemoryComponent->CanSeeEnemy()));
+    //WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::FightInsteadOfFlight), 
+    //    FGoapValue()); // TODO random from time to time fight mode activate where survival is not so important anymore?
+    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsAimedAt), 
+        FGoapValue(PerceptionMemoryComponent->IsAimedAt()));
 
+    WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsFlankTargetLocationAvailable), 
+        FGoapValue(FlankingComponent->IsFlankTargetLocationAvailable()));
+
+    // Add the most interesting perceptions from perception memory
+    if (PerceptionMemoryComponent->GetMostInterestingPerceivedEnemy()) 
+    {
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsFocusedOnStrongPerceivedStimulus), 
+            FGoapValue(PerceptionMemoryComponent->HasHalfStrongEnemyPerception()));
+
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsMinThresholdFulfilledForEnemyPerception), 
+            FGoapValue(PerceptionMemoryComponent->IsMinThresholdFulfilledForEnemyPerception()));
+
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::IsLookingAtStimulus), 
+            FGoapValue(PerceptionMemoryComponent->IsLookingAtStimulus()));
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasPerceivedStimulus), 
+            FGoapValue(PerceptionMemoryComponent->HasPerceivedStimulus()));
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::HasInvestigatedStimulus), 
+            FGoapValue(PerceptionMemoryComponent->HasInvestigatedStimulus()));
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::PerceivedStimulusType), 
+            FGoapValue(PerceptionMemoryComponent->GetPerceivedStimulusType()));
+        WorldState.Add(FGoapWorldStateKeyUtils::ToString(EGoapWorldStateKey::PerceivedStimulusLocation), 
+            FGoapValue(PerceptionMemoryComponent->GetPerceivedStimulusLocation()));
+    }
+    
     return WorldState;
 }
 
-void AGoapShooterAIController::TargetActorsPerceptionUpdated(AActor* TargetActor, FAIStimulus Stimulus)
+bool AGoapShooterAIController::IsAnyCurrentExecutableActionRelatedToMostInterestingActor()
 {
-    if (TargetActor == GetPawn() || !TargetActor->ActorHasTag("ToBePerceivedByAI"))
+    bool AnyCurrentExecutableActionIsRelatedToMostInterestingActor = false;
+    AActor* TheMostInterestingActor = PerceptionMemoryComponent->GetMostInterestingPerceivedEnemy();
+    UExecutableAction* MovementExecutable = MovementPlanningComponent->CurrentExecutableAction;
+    if (MovementExecutable && TheMostInterestingActor)
     {
-        return;
+        if (MovementExecutable->GetIsRelatedToMostInterestingActor()
+            && MovementExecutable->GetMostInterestingActorWhenActionStarted() == TheMostInterestingActor)
+        {
+            AnyCurrentExecutableActionIsRelatedToMostInterestingActor = true;
+        }
     }
-
-    if (Stimulus.WasSuccessfullySensed()) {
-
-        AddOrUpdatePerceptionData(TargetActor, Stimulus);
-        
-    } else {
-
-        RemovePerceptionData(TargetActor, Stimulus);
-    }
-
-    CleanUpPerceptionMemory(); // cleaning up from time to time to mitigate risk of memory leaks
-
-    ChooseMostInterestingPerceptionData();
-}
-
-void AGoapShooterAIController::ChooseMostInterestingPerceptionData()
-{
-    // reset first
-    MostInterestingPerception = FPerceptionData();
-    
-    if (PerceptionMemory.Num() == 0)
+    UExecutableAction* HandsExecutable = CombatPlanningComponent->CurrentExecutableAction;
+    if (HandsExecutable && TheMostInterestingActor)
     {
-        return;
-    }
-    
-    // priority order: Damage > Visual > Audio
-    EPerceptionType HighestPriorityType = EPerceptionType::None;
-    float HighestStrength = -1.0f;
-    float MostRecentTime = -1.0f;
-    AActor* MostInterestingActor = nullptr;
-    
-    for (const auto& Pair : PerceptionMemory)
-    {
-        AActor* Actor = Pair.Key;
-        const FPerceptionData& Perception = Pair.Value;
-        
-        if (Perception.bHasBeenInvestigated)
+        if (HandsExecutable->GetIsRelatedToMostInterestingActor()
+            && HandsExecutable->GetMostInterestingActorWhenActionStarted() == TheMostInterestingActor)
         {
-            continue;
-        }
-        
-        bool bIsMoreInteresting = false;
-        
-        // prioritize according to perception type
-        if (Perception.PerceptionType == EPerceptionType::Damage && 
-            HighestPriorityType != EPerceptionType::Damage)
-        {
-            bIsMoreInteresting = true;
-        }
-        else if (Perception.PerceptionType == EPerceptionType::Visual && 
-                 HighestPriorityType != EPerceptionType::Damage)
-        {
-            bIsMoreInteresting = true;
-        }
-        else if (Perception.PerceptionType == EPerceptionType::Audio && 
-                 HighestPriorityType == EPerceptionType::None)
-        {
-            bIsMoreInteresting = true;
-        }
-        else if (Perception.PerceptionType == HighestPriorityType && 
-                 Perception.Strength > HighestStrength)
-        {
-            bIsMoreInteresting = true;
-        }
-        else if (Perception.PerceptionType == HighestPriorityType && 
-                 Perception.Strength == HighestStrength && 
-                 Perception.LastPerceivedTime > MostRecentTime)
-        {
-            bIsMoreInteresting = true;
-        }
-        
-        if (bIsMoreInteresting)
-        {
-            HighestPriorityType = Perception.PerceptionType;
-            HighestStrength = Perception.Strength;
-            MostRecentTime = Perception.LastPerceivedTime;
-            MostInterestingActor = Actor;
+            AnyCurrentExecutableActionIsRelatedToMostInterestingActor = true;
         }
     }
-    
-    // set the most interesting perception
-    if (MostInterestingActor)
-    {
-        MostInterestingPerception = PerceptionMemory[MostInterestingActor];
-        
-        // UE_LOG(LogTemp, Log, TEXT("AI %s chose %s as most interesting perception at location %s"),
-        //     *GetName(),
-        //     *FPerceptionTypeUtils::ToString(MostInterestingPerception.PerceptionType),
-        //     *MostInterestingPerception.LastPerceivedLocation.ToString());
-    }
+    return AnyCurrentExecutableActionIsRelatedToMostInterestingActor;
 }
 
 void AGoapShooterAIController::BeginPlay()
 {
     Super::BeginPlay();
+}
+
+void AGoapShooterAIController::OnSignificantWorldStateChange()
+{
+    MovementPlanningComponent->OnSignificantWorldStateChange();
+    CombatPlanningComponent->OnSignificantWorldStateChange();
 }
 
 void AGoapShooterAIController::Tick(float DeltaTime)
@@ -180,277 +186,42 @@ void AGoapShooterAIController::Tick(float DeltaTime)
     {
         return;
     }
-
-    UpdateCurrentEnemy();
     
     RotatePawnTowardsEnemy(DeltaTime);
-    
-    DrawPerceptionVisualization();
 }
 
 void AGoapShooterAIController::RotatePawnTowardsEnemy(float DeltaTime)
 {
     //return; // can be disabled to test actions like WaitForPeekAction
 
-    if (CurrentEnemy && GetPawn())
+    if (PerceptionMemoryComponent->HasHalfStrongEnemyPerception()) // MostInterestingActor
     {
-        FVector EnemyLocation = CurrentEnemy->GetActorLocation();
-        FVector AILocation = GetPawn()->GetActorLocation();
-        
-        FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(AILocation, EnemyLocation);
-        
-        APawn* ControlledPawn = GetPawn();
-        FRotator CurrentRotation = ControlledPawn->GetActorRotation();
-        FRotator TargetRotation = FRotator(CurrentRotation.Pitch, LookAtRotation.Yaw, CurrentRotation.Roll);
-        
-        FRotator NewRotation = FMath::RInterpTo(CurrentRotation, TargetRotation, DeltaTime, 5.0f);
-        
-        ControlledPawn->SetActorRotation(NewRotation);
+        RotatePawnTowardsLocation(PerceptionMemoryComponent->GetMostInterestingPerceivedEnemy()->GetActorLocation(), DeltaTime);
+    } 
+    else if (!PerceptionMemoryComponent->GetLastSeenEnemyLocation().IsZero() 
+        && (PerceptionMemoryComponent->GetLastSeenEnemyWorldTime() + RandSecondsRotateTowardsLastSeenLocation > GetWorld()->GetTimeSeconds())) 
+    {
+        RotatePawnTowardsLocation(PerceptionMemoryComponent->GetLastSeenEnemyLocation(), DeltaTime);
+    }
+    else 
+    {
+        // from time to time we want to recalculate the time to stay locked on last seen location
+        RandSecondsRotateTowardsLastSeenLocation = FMath::FRandRange(
+            MinSecondsRotateTowardsLastSeenLocation, MaxSecondsRotateTowardsLastSeenLocation);
     }
 }
 
-bool AGoapShooterAIController::CanSeeEnemy() const
+void AGoapShooterAIController::RotatePawnTowardsLocation(FVector Location, float DeltaTime)
 {
-    return CurrentEnemy != nullptr;
+    FVector AILocation = GetPawn()->GetActorLocation();
+    
+    FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(AILocation, Location);
+
+    FRotator CurrentRotation = GetPawn()->GetActorRotation();
+    FRotator TargetRotation(CurrentRotation.Pitch, LookAtRotation.Yaw, CurrentRotation.Roll);
+
+    // >> Do not Interp! thats not working because we dont have a fixed AI location and fixed target rotation
+
+    GetPawn()->SetActorRotation(TargetRotation);
 }
 
-AGoapShooterCharacter* AGoapShooterAIController::GetCurrentEnemy() const
-{
-    return Cast<AGoapShooterCharacter>(CurrentEnemy);
-}
-
-void AGoapShooterAIController::OnCurrentEnemyKilled()
-{
-    bLastEnemyInSightKilled = true;
-}
-
-void AGoapShooterAIController::UpdateCurrentEnemy()
-{
-    if (!CurrentEnemy)
-    {
-        PickNewEnemyFromMemory();
-        if (CurrentEnemy)
-        {
-            LastSeenEnemyLocation = FVector::ZeroVector;
-            LastSeenEnemyWorldTime = -FLT_MAX;
-            bLastEnemyInSightKilled = false;
-        }
-    }
-    else
-    {
-        AActor* CurrentEnemyTemp = CurrentEnemy;
-        if (!IsCurrentEnemyStillInClearSight())
-        {
-            PickNewEnemyFromMemory();
-            if (CurrentEnemy)
-            {
-                LastSeenEnemyLocation = FVector::ZeroVector;
-                LastSeenEnemyWorldTime = -FLT_MAX;
-                bLastEnemyInSightKilled = false;
-            } else
-            {
-                LastSeenEnemyLocation = CurrentEnemyTemp->GetActorLocation();
-                LastSeenEnemyWorldTime = GetWorld()->GetTimeSeconds();
-            }
-        }
-    }
-}
-
-bool AGoapShooterAIController::IsCurrentEnemyStillInClearSight()
-{
-    bool bCurrentEnemyValid = false;
-    if (PerceptionMemory.Contains(CurrentEnemy))
-    {
-        const FPerceptionData& CurrentEnemyPerception = PerceptionMemory[CurrentEnemy];
-        if (CurrentEnemyPerception.PerceptionType == EPerceptionType::Visual)
-        {
-            bCurrentEnemyValid = IsActorInFieldOfView(CurrentEnemy);
-        }
-    }
-    return bCurrentEnemyValid;
-}
-
-void AGoapShooterAIController::PickNewEnemyFromMemory()
-{
-    CurrentEnemy = nullptr;
-    
-    AActor* BestVisualPerceptionActor = nullptr;
-    
-    for (const auto& Pair : PerceptionMemory)
-    {
-        const FPerceptionData& PerceptionData = Pair.Value;
-        
-        if (IsActorInFieldOfView(PerceptionData.PerceivedActor))
-        {
-            BestVisualPerceptionActor = PerceptionData.PerceivedActor;
-        }
-    }
-    
-    if (BestVisualPerceptionActor != nullptr)
-    {
-        CurrentEnemy = BestVisualPerceptionActor;
-
-        const FPerceptionData& SelectedPerception = PerceptionMemory[BestVisualPerceptionActor];
-        
-        bLastEnemyInSightKilled = false;
-        
-        //UE_LOG(LogTemp, Log, TEXT("AI %s selected visual actor %s as enemy"),
-        //    *GetName(),
-        //    *CurrentEnemy->GetName());
-    }
-}
-
-bool AGoapShooterAIController::IsActorInFieldOfView(AActor* TargetActor)
-{
-    if (!GetPawn() || !TargetActor)
-    {
-        return false;
-    }
-    
-    FVector PawnLocation = GetPawn()->GetActorLocation();
-    FVector TargetLocation = TargetActor->GetActorLocation();
-    FVector DirectionToTarget = (TargetLocation - PawnLocation).GetSafeNormal();
-    
-    FVector PawnForward = GetPawn()->GetActorForwardVector();
-    
-    float DotProduct = FVector::DotProduct(PawnForward, DirectionToTarget);
-    float AngleRadians = FMath::Acos(DotProduct);
-    float AngleDegrees = FMath::RadiansToDegrees(AngleRadians);
-    
-    return AngleDegrees <= (FieldOfViewAngle * 0.5f);
-}
-
-void AGoapShooterAIController::OnStimulusInvestigated(const FPerceptionData& Stimulus)
-{
-    // Mark stimulus as investigated
-    if (PerceptionMemory.Contains(Stimulus.PerceivedActor))
-    {
-        FPerceptionData& PerceptionData = PerceptionMemory[Stimulus.PerceivedActor];
-        if (Stimulus.LastPerceivedLocation.Equals(PerceptionData.LastPerceivedLocation, 1.0f))
-        {
-            PerceptionData.bHasBeenInvestigated = true;
-        }
-    }
-}
-
-void AGoapShooterAIController::AddOrUpdatePerceptionData(AActor* PerceivedActor, FAIStimulus Stimulus)
-{
-    // dont override existing visual perception (visual is the most important)
-    if (PerceptionMemory.Contains(PerceivedActor) 
-        && PerceptionMemory[PerceivedActor].PerceptionType == EPerceptionType::Visual 
-        && DeterminePerceptionType(Stimulus) != EPerceptionType::Visual)
-    {
-        return;
-    }
-
-    FPerceptionData& PerceptionData = PerceptionMemory.FindOrAdd(PerceivedActor);
-    PerceptionData.PerceivedActor = PerceivedActor;
-    PerceptionData.LastPerceivedLocation = PerceivedActor->GetActorLocation();
-    PerceptionData.LastPerceivedTime = GetWorld()->GetTimeSeconds();
-    PerceptionData.PerceptionType = DeterminePerceptionType(Stimulus);
-    PerceptionData.Strength = Stimulus.Strength;
-    PerceptionData.bHasBeenInvestigated = false;
-}
-
-void AGoapShooterAIController::RemovePerceptionData(AActor* UnPerceivedActor, FAIStimulus Stimulus)
-{
-    if (PerceptionMemory.Contains(UnPerceivedActor))
-    {
-        EPerceptionType PerceptionType = DeterminePerceptionType(Stimulus);
-        FPerceptionData& StoredPerception = PerceptionMemory[UnPerceivedActor];
-        if (StoredPerception.PerceptionType == PerceptionType)
-        {
-            PerceptionMemory.Remove(UnPerceivedActor);
-        }
-    }
-}
-
-void AGoapShooterAIController::CleanUpPerceptionMemory()
-{
-    // remove entries with invalid actors
-    for (auto It = PerceptionMemory.CreateIterator(); It; ++It)
-    {
-        if (!IsValid(It->Key))
-        {
-            It.RemoveCurrent();
-        }
-    }
-
-    // remove entries with expired stimuli
-    for (auto It = PerceptionMemory.CreateIterator(); It; ++It)
-    {
-        if (It->Value.LastPerceivedTime + PerceptionDataLifetimeInSeconds < GetWorld()->GetTimeSeconds())
-        {
-            It.RemoveCurrent();
-        }
-    }
-}
-
-EPerceptionType AGoapShooterAIController::DeterminePerceptionType(const FAIStimulus& Stimulus) const
-{
-    // Determine the type of perception based on the stimulus type
-    if (Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>())
-    {
-        return EPerceptionType::Visual;
-    }
-    else if (Stimulus.Type == UAISense::GetSenseID<UAISense_Hearing>())
-    {
-        return EPerceptionType::Audio;
-    }
-    else if (Stimulus.Type == UAISense::GetSenseID<UAISense_Damage>())
-    {
-        return EPerceptionType::Damage;
-    }
-    
-    return EPerceptionType::None;
-}
-
-void AGoapShooterAIController::DrawPerceptionVisualization()
-{
-    if (!bVisualizePerception || !GetPawn() || !SightConfig)
-    {
-        return;
-    }
-
-    // Get the pawn's location and forward vector
-    FVector PawnLocation = GetPawn()->GetActorLocation();
-    FVector PawnForward = GetPawn()->GetActorForwardVector();
-    
-    const float SightRadius = SightConfig->SightRadius;
-    const float PeripheralVisionAngle = SightConfig->PeripheralVisionAngleDegrees;
-    
-    // Determine the color based on whether an enemy is detected
-    // IMPORTANT: Using our own check for visualization purposes ONLY
-    bool bIsActorPerceivedForVisualization = PerceptionMemory.Num() > 0;
-    
-    FColor ConeColor = bIsActorPerceivedForVisualization ? FColor::Green : FColor::Red;
-    
-    // Draw the sight cone
-    DrawDebugCone(
-        GetWorld(),                // World
-        PawnLocation,              // Origin
-        PawnForward,               // Direction
-        SightRadius,               // Length
-        FMath::DegreesToRadians(PeripheralVisionAngle * 0.5f), // Angle in radians (half the total angle)
-        0.0f,                     // Inner angle in radians
-        12,                        // Number of sides
-        ConeColor,                 // Color
-        false,                     // Persistent lines
-        0.0f                       // Lifetime (0 = one frame)
-    );
-    
-    // If there's a current enemy, draw a line to them
-    if (CurrentEnemy)
-    {
-        DrawDebugLine(
-            GetWorld(),
-            PawnLocation,
-            CurrentEnemy->GetActorLocation(),
-            bIsActorPerceivedForVisualization ? FColor::Green : FColor::Yellow,
-            false,
-            0.0f,
-            0,
-            2.0f
-        );
-    }
-}

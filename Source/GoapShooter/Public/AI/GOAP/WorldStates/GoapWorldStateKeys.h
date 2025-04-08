@@ -15,9 +15,14 @@ enum class EGoapWorldStateKey : uint8
     //HasWeapon UMETA(DisplayName = "Has Weapon"),
     //HasAmmo UMETA(DisplayName = "Has Ammo"),
     //IsHealthLow UMETA(DisplayName = "Is Health Low"),
-    //IsInCover UMETA(DisplayName = "Is In Cover"),
     AIPosition UMETA(DisplayName = "AI Position"),
     
+    IsCoverNearby UMETA(DisplayName = "Is Cover Nearby"),
+    BestCoverLocation UMETA(DisplayName = "Best Cover Location"),
+    IsInCover UMETA(DisplayName = "Is In Cover"),
+
+    IsFlankTargetLocationAvailable UMETA(DisplayName = "Is Flank Target Location Available"),
+
     // Combat state
     CanSeeEnemy UMETA(DisplayName = "Can See Enemy"),
     //IsEnemyDead UMETA(DisplayName = "Is Enemy Dead"),
@@ -25,8 +30,13 @@ enum class EGoapWorldStateKey : uint8
     WorldTimeLastEnemySeen UMETA(DisplayName = "World Time Last Enemy Seen"),
     HasLastSeenEnemyLocation UMETA(DisplayName = "Has Last Seen Enemy Location"),
     AllEnemiesInSightAreKilled UMETA(DisplayName = "All Enemies In Sight Are Killed"),
+    IsAimedAt UMETA(DisplayName = "Is Aimed At"),
+    IsInDanger UMETA(DisplayName = "Is In Danger"),
 
     // Perception state
+    IsFocusedOnStrongPerceivedStimulus UMETA(DisplayName = "Is Focused On Strong Perceived Stimulus"),
+    IsMinThresholdFulfilledForEnemyPerception UMETA(DisplayName = "Is Min Threshold Fulfilled For Enemy Perception"),
+    IsLookingAtStimulus UMETA(DisplayName = "Is Looking At Stimulus"),
     HasPerceivedStimulus UMETA(DisplayName = "Has Perceived Stimulus"),
     PerceivedStimulusType UMETA(DisplayName = "Perceived Stimulus Type"),
     HasInvestigatedStimulus UMETA(DisplayName = "Has Investigated Stimulus"),

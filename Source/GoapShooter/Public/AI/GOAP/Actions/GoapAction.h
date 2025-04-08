@@ -1,13 +1,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/NoExportTypes.h"
 #include "AI/GOAP/Utils/GoapTypes.h"
 #include "GoapAction.generated.h"
 
 /**
  * Base class for GOAP actions in the GoapShooter game.
  * Represents an action that can be performed by AI characters using GOAP planning.
+ *
+ * Note: This class shall not be respnsible for executing the action. It shall only be respnsible for planning purposes.
  */
 UCLASS(Blueprintable, Abstract)
 class GOAPSHOOTER_API UGoapAction : public UObject

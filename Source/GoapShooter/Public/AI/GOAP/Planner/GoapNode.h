@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/NoExportTypes.h"
 #include "AI/GOAP/Utils/GoapTypes.h"
 #include "AI/GOAP/Actions/GoapAction.h"
 #include "GoapNode.generated.h"

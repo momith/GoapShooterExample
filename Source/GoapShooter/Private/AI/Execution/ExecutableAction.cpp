@@ -1,6 +1,7 @@
 #include "AI/Execution/ExecutableAction.h"
-#include "Controllers/GoapShooterAIControllerBase.h"
 #include "AI/GOAP/Actions/GoapAction.h"
+#include "Components/PerceptionMemoryComponent.h"
+#include "Controllers/GoapShooterAIController.h"
 
 UExecutableAction::UExecutableAction()
 {
@@ -10,9 +11,11 @@ UExecutableAction::UExecutableAction()
     bIsComplete = false;
     bWasSuccessful = false;
     ExecutionTime = 0.0f;
+
+    MostInterestingActorWhenActionStarted = nullptr;
 }
 
-void UExecutableAction::Initialize(AGoapShooterAIControllerBase* InController, UGoapAction* InGoapAction)
+void UExecutableAction::Initialize(AGoapShooterAIController* InController, UGoapAction* InGoapAction)
 {
     OwnerController = InController;
     GoapAction = InGoapAction;
@@ -20,16 +23,12 @@ void UExecutableAction::Initialize(AGoapShooterAIControllerBase* InController, U
     bIsComplete = false;
     bWasSuccessful = false;
     ExecutionTime = 0.0f;
+
+    MostInterestingActorWhenActionStarted = InController->GetPerceptionMemoryComponent()->GetMostInterestingPerceivedEnemy();
 }
 
 bool UExecutableAction::StartExecution()
-{
-    if (!OwnerController || !GoapAction)
-    {
-        UE_LOG(LogTemp, Error, TEXT("ExecutableAction::StartExecution: Missing controller or GOAP action"));
-        return false;
-    }
-    
+{   
     bIsExecuting = true;
     bIsComplete = false;
     bWasSuccessful = false;
@@ -70,6 +69,7 @@ void UExecutableAction::AbortAction()
     
     // Notify listeners that the action was aborted
     OnActionCompleted.Broadcast(this, false);
+    Internal_OnActionCompleted(false);
 }
 
 void UExecutableAction::CompleteAction()
@@ -87,6 +87,7 @@ void UExecutableAction::CompleteAction()
     
     // Notify listeners that the action was completed successfully
     OnActionCompleted.Broadcast(this, true);
+    Internal_OnActionCompleted(true);
 }
 
 void UExecutableAction::FailAction()
@@ -104,6 +105,7 @@ void UExecutableAction::FailAction()
     
     // Notify listeners that the action failed
     OnActionCompleted.Broadcast(this, false);
+    Internal_OnActionCompleted(false);
 }
 
 FString UExecutableAction::GetActionName() const
@@ -114,4 +116,9 @@ FString UExecutableAction::GetActionName() const
     }
     
     return TEXT("Unknown");
+}
+
+void UExecutableAction::Internal_OnActionCompleted(bool bSuccess)
+{
+    //
 }

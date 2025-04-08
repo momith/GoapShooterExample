@@ -1,11 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/NoExportTypes.h"
 #include "ExecutableAction.generated.h"
-
-class AGoapShooterAIControllerBase;
-class UGoapAction;
 
 /**
  * Delegate for action completion events
@@ -17,6 +13,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnActionCompletedDelegate, class U
 /**
  * Base class for executable actions that can be executed by the AI Controller
  * Handles the execution of GOAP actions and notifies the AI Controller upon completion
+ *
+ * The concept of executable actions is a little bit unintuitive and messy and should be refactored: When an
+ * executable action is created for a GOAP action, the method Initialize is called. Afterwards, the TickAction
+ * method will be called in the tick of the planner until the planner is notified about the end of the action.
+ * These are the only methods you can count on being called by the planning component.
+ *
+ * TODO refactor the concept of ExecutableAction
  */
 UCLASS(Abstract, BlueprintType, Blueprintable)
 class GOAPSHOOTER_API UExecutableAction : public UObject
@@ -31,7 +34,7 @@ public:
 	 * @param InController - The AI Controller that owns this action
 	 * @param InGoapAction - The GOAP action to execute
 	 */
-	void Initialize(AGoapShooterAIControllerBase* InController, UGoapAction* InGoapAction);
+	void Initialize(class AGoapShooterAIController* InController, class UGoapAction* InGoapAction);
 	
 	/**
 	 * Start executing the action
@@ -78,14 +81,17 @@ public:
 	UPROPERTY(BlueprintAssignable)
 	FOnActionCompletedDelegate OnActionCompleted;
 	
+	bool GetIsRelatedToMostInterestingActor() const { return bIsRelatedToMostInterestingActor; }
+	AActor* GetMostInterestingActorWhenActionStarted() const { return MostInterestingActorWhenActionStarted; }
+
 protected:
 	/** The AI Controller that owns this action */
 	UPROPERTY()
-	AGoapShooterAIControllerBase* OwnerController;
+	class AGoapShooterAIController* OwnerController;
 	
 	/** The GOAP action being executed */
 	UPROPERTY()
-	UGoapAction* GoapAction;
+	class UGoapAction* GoapAction;
 	
 	/** Whether the action is currently executing */
 	UPROPERTY()
@@ -102,4 +108,14 @@ protected:
 	/** Time spent executing the action */
 	UPROPERTY()
 	float ExecutionTime;
+
+	virtual void Internal_OnActionCompleted(bool bSuccess);
+
+	UPROPERTY()
+	AActor* MostInterestingActorWhenActionStarted;
+
+	/** Whether the action is related to the most interesting actor. By default true. */
+	UPROPERTY()
+	bool bIsRelatedToMostInterestingActor = true;
+
 };
