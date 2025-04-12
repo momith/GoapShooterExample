@@ -7,20 +7,22 @@
 #include "EnvironmentQuery/EnvQueryTypes.h"
 #include "EnvironmentQuery/EnvQuery.h"
 #include "Curves/CurveFloat.h"
+#include "EQS/EnvQuery_FindCover.h"
 
 UCoverComponent::UCoverComponent()
 {
-	// load BP assets because BP and C++ synchronization is buggy
-	static ConstructorHelpers::FObjectFinder<UEnvQuery> EqsQueryForCoverLocationsAssetFinder(
-	    TEXT("/Game/AI/EQ_FindCover"));
-	if (EqsQueryForCoverLocationsAssetFinder.Succeeded())
-	{
-		EqsQueryForCoverLocations = EqsQueryForCoverLocationsAssetFinder.Object;
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to find EqsQueryForCoverLocations asset."));
-	}
+    EqsQueryForCoverLocations = NewObject<UEnvQuery_FindCover>();
+	// // load BP assets because BP and C++ synchronization is buggy
+	// static ConstructorHelpers::FObjectFinder<UEnvQuery> EqsQueryForCoverLocationsAssetFinder(
+	//     TEXT("/Game/AI/EQ_FindCover"));
+	// if (EqsQueryForCoverLocationsAssetFinder.Succeeded())
+	// {
+	// 	EqsQueryForCoverLocations = EqsQueryForCoverLocationsAssetFinder.Object;
+	// }
+	// else
+	// {
+	// 	UE_LOG(LogTemp, Error, TEXT("Failed to find EqsQueryForCoverLocations asset."));
+	// }
 }
 
 void UCoverComponent::BeginPlay()

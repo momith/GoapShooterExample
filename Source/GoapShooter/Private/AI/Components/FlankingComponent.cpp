@@ -15,20 +15,22 @@
 #include "AI/Navigation/NavQueryFilter_AvoidFlanking.h"
 #include "NavigationPath.h"
 #include "Components/PerceptionMemoryComponent.h"
+#include "EQS/EnvQuery_FindFlankTargetLocation.h"
 
 UFlankingComponent::UFlankingComponent()
 {
-    // load BP assets because BP and C++ synchronization is buggy
-    static ConstructorHelpers::FObjectFinder<UEnvQuery> EqsQueryForFlankLocationsAssetFinder(
-        TEXT("/Game/AI/EQ_FindFlankTargetLocation"));
-    if (EqsQueryForFlankLocationsAssetFinder.Succeeded())
-    {
-        EqsQueryForFlankLocations = EqsQueryForFlankLocationsAssetFinder.Object;
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to find EqsQueryForFlankLocations asset for the UFlankingComponent."));
-    }
+    EqsQueryForFlankLocations = NewObject<UEnvQuery_FindFlankTargetLocation>();
+    // // load BP assets because BP and C++ synchronization is buggy
+    // static ConstructorHelpers::FObjectFinder<UEnvQuery> EqsQueryForFlankLocationsAssetFinder(
+    //     TEXT("/Game/AI/EQ_FindFlankTargetLocation"));
+    // if (EqsQueryForFlankLocationsAssetFinder.Succeeded())
+    // {
+    //     EqsQueryForFlankLocations = EqsQueryForFlankLocationsAssetFinder.Object;
+    // }
+    // else
+    // {
+    //     UE_LOG(LogTemp, Error, TEXT("Failed to find EqsQueryForFlankLocations asset for the UFlankingComponent."));
+    // }
 }
 
 void UFlankingComponent::BeginPlay()
